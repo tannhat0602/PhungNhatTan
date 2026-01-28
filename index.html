@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quản lý Posts & Comments</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    h1 { text-align: center; margin-bottom: 30px; color: #333; }
+    
+    .form-section { background: white; padding: 20px; border-radius: 8px; margin-bottom: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #333; }
+    .form-group input, .form-group textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+    .form-group textarea { resize: vertical; min-height: 80px; }
+    .btn { padding: 10px 20px; margin-right: 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold; }
+    .btn-primary { background: #007bff; color: white; }
+    .btn-primary:hover { background: #0056b3; }
+    .btn-danger { background: #dc3545; color: white; }
+    .btn-danger:hover { background: #c82333; }
+    .btn-warning { background: #ffc107; color: black; }
+    .btn-warning:hover { background: #e0a800; }
+    .btn-success { background: #28a745; color: white; }
+    .btn-success:hover { background: #218838; }
+    
+    .posts-section { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .post { border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 4px; background: #fafafa; }
+    /* CSS cho trạng thái đã xoá mềm */
+    .post.deleted { opacity: 0.7; background: #f0f0f0; border: 1px dashed #999; }
+    .post-title { font-size: 1.2em; font-weight: bold; margin-bottom: 8px; word-break: break-word; }
+    .post-title.deleted { text-decoration: line-through; color: #999; }
+    .post-content { color: #666; margin-bottom: 10px; word-break: break-word; }
+    .post-content.deleted { text-decoration: line-through; color: #aaa; }
+    .post-meta { color: #999; font-size: 0.9em; margin-bottom: 10px; }
+    .post-actions { margin-top: 10px; }
+    .post-actions .btn { padding: 6px 12px; font-size: 13px; margin-right: 8px; }
+    
+    .comments-section { margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; }
+    .comments-title { font-weight: bold; color: #333; margin-bottom: 10px; }
+    .comment { background: #f9f9f9; padding: 10px; margin-bottom: 8px; border-left: 3px solid #007bff; border-radius: 2px; }
+    .comment.deleted { opacity: 0.6; background: #efefef; border-left-color: #999; }
+    .comment-text { margin-bottom: 5px; word-break: break-word; }
+    .comment-text.deleted { text-decoration: line-through; color: #999; }
+    .comment-meta { font-size: 0.85em; color: #999; }
+    .comment-actions { margin-top: 5px; }
+    .comment-actions .btn { padding: 4px 8px; font-size: 12px; margin-right: 5px; }
+    
+    .no-posts { text-align: center; color: #999; padding: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Quản lý Posts & Comments</h1>
+    
+    <div class="form-section">
+      <h3>Thêm Post Mới</h3>
+      <div class="form-group">
+        <label>Tiêu đề:</label>
+        <input type="text" id="postTitle" placeholder="Nhập tiêu đề...">
+      </div>
+      <div class="form-group">
+        <label>Nội dung:</label>
+        <textarea id="postContent" placeholder="Nhập nội dung..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Lượt xem:</label>
+        <input type="number" id="postViews" placeholder="0" value="0">
+      </div>
+      <button class="btn btn-primary" onclick="addPost()">Thêm Post</button>
+    </div>
+    
+    <div class="posts-section">
+      <h3>Danh sách Posts</h3>
+      <div id="postsList"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:3000';
+
+    // --- HÀM MỚI: Tính toán ID tự tăng (String) ---
+    async function getNextId(resource) {
+      const res = await fetch(`${API_URL}/${resource}`);
+      const data = await res.json();
+      if (data.length === 0) return "1";
+      
+      // Lấy tất cả ID, chuyển về số để tìm Max
+      const ids = data.map(item => parseInt(item.id)).filter(id => !isNaN(id));
+      const maxId = ids.length > 0 ? Math.max(...ids) : 0;
+      return (maxId + 1).toString();
+    }
+
+    // Tải và hiển thị tất cả posts
+    async function loadPosts() {
+      try {
+        const res = await fetch(`${API_URL}/posts`);
+        const posts = await res.json();
+        const postsList = document.getElementById('postsList');
+        
+        if (!posts || posts.length === 0) {
+          postsList.innerHTML = '<div class="no-posts">Chưa có post nào.</div>';
+          return;
+        }
+        
+        postsList.innerHTML = posts.map(post => `
+          <div class="post ${post.isDeleted ? 'deleted' : ''}">
+            <div class="post-title ${post.isDeleted ? 'deleted' : ''}">
+              ${escapeHtml(post.title)}
+            </div>
+            ${post.content ? `<div class="post-content ${post.isDeleted ? 'deleted' : ''}">${escapeHtml(post.content)}</div>` : ''}
+            <div class="post-meta">ID: ${post.id} | Lượt xem: ${post.views || 0} | Trạng thái: ${post.isDeleted ? 'Đã xoá' : 'Hoạt động'}</div>
+            <div class="post-actions">
+              <button class="btn btn-warning" onclick="editPostForm('${post.id}', '${escapeHtml(post.title)}', '${escapeHtml(post.content || '')}', '${post.views || 0}')">Sửa</button>
+              
+              ${!post.isDeleted ? `<button class="btn btn-danger" onclick="deletePost('${post.id}')">Xoá</button>` : ''}
+              
+              <button class="btn btn-success" onclick="loadComments('${post.id}')">Xem Comments</button>
+            </div>
+            <div class="comments-section" id="comments-${post.id}"></div>
+          </div>
+        `).join('');
+      } catch (err) {
+        console.error('Lỗi tải posts:', err);
+        document.getElementById('postsList').innerHTML = '<div class="no-posts">Lỗi khi tải dữ liệu.</div>';
+      }
+    }
+
+    // Thêm post mới (Đã sửa để dùng ID tự tăng)
+    async function addPost() {
+      const title = document.getElementById('postTitle').value.trim();
+      const content = document.getElementById('postContent').value.trim();
+      const views = parseInt(document.getElementById('postViews').value) || 0;
+      
+      if (!title) {
+        alert('Vui lòng nhập tiêu đề!');
+        return;
+      }
+      
+      try {
+        // Lấy ID tiếp theo
+        const nextId = await getNextId('posts');
+
+        const res = await fetch(`${API_URL}/posts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            id: nextId,  // Gán ID thủ công
+            title, 
+            content, 
+            views, 
+            isDeleted: false 
+          })
+        });
+        
+        if (!res.ok) throw new Error('Lỗi thêm post');
+        
+        document.getElementById('postTitle').value = '';
+        document.getElementById('postContent').value = '';
+        document.getElementById('postViews').value = '0';
+        loadPosts();
+      } catch (err) {
+        alert('Lỗi: ' + err.message);
+      }
+    }
+
+    // Xoá post (Đã sửa: dùng PATCH để xoá mềm)
+    async function deletePost(id) {
+      if (!confirm('Bạn có chắc muốn xoá post này (xoá mềm)?')) return;
+      
+      try {
+        // Thay DELETE bằng PATCH và cập nhật isDeleted: true
+        const res = await fetch(`${API_URL}/posts/${id}`, { 
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isDeleted: true })
+        });
+        
+        if (!res.ok) throw new Error('Lỗi xoá post');
+        loadPosts();
+      } catch (err) {
+        alert('Lỗi: ' + err.message);
+      }
+    }
+
+    // Sửa post form (Giữ nguyên logic của bạn)
+    function editPostForm(id, title, content, views) {
+      // Decode HTML entities để hiện trong prompt cho đẹp
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = title;
+      const cleanTitle = tempDiv.textContent || tempDiv.innerText || "";
+      
+      tempDiv.innerHTML = content;
+      const cleanContent = tempDiv.textContent || tempDiv.innerText || "";
+
+      const newTitle = prompt('Tiêu đề mới:', cleanTitle);
+      if (newTitle === null) return;
+      
+      const newContent = prompt('Nội dung mới:', cleanContent);
+      if (newContent === null) return;
+      
+      const newViews = prompt('Lượt xem mới:', views);
+      if (newViews === null) return;
+      
+      updatePost(id, newTitle, newContent, parseInt(newViews) || 0);
+    }
+
+    // Cập nhật post (Đã sửa: dùng PATCH để an toàn cho soft delete)
+    async function updatePost(id, title, content, views) {
+      try {
+        const res = await fetch(`${API_URL}/posts/${id}`, {
+          method: 'PATCH', // Đổi PUT thành PATCH để không mất isDeleted
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, content, views })
+        });
+        
+        if (!res.ok) throw new Error('Lỗi cập nhật post');
+        loadPosts();
+      } catch (err) {
+        alert('Lỗi: ' + err.message);
+      }
+    }
+
+    // Tải comments của post
+    async function loadComments(postId) {
+      try {
+        const res = await fetch(`${API_URL}/comments`);
+        const allComments = await res.json();
+        // Lọc theo postId
+        const comments = allComments.filter(c => c.postId == postId); // dùng == để so sánh chuỗi/số
+        
+        const commentsDiv = document.getElementById(`comments-${postId}`);
+        commentsDiv.innerHTML = `
+          <div class="comments-title">Comments (${comments.length})</div>
+          <div class="form-group" style="margin-top: 10px;">
+            <input type="text" id="newComment-${postId}" placeholder="Thêm bình luận...">
+            <button class="btn btn-primary" onclick="addComment('${postId}')" style="margin-top: 5px; width: 100%;">Thêm Comment</button>
+          </div>
+          ${comments.length === 0 ? '<div style="color: #999; padding: 10px;">Chưa có comment nào.</div>' : ''}
+          ${comments.map(comment => `
+            <div class="comment ${comment.isDeleted ? 'deleted' : ''}">
+              <div class="comment-text ${comment.isDeleted ? 'deleted' : ''}">${escapeHtml(comment.text)}</div>
+              <div class="comment-meta">ID: ${comment.id} | Trạng thái: ${comment.isDeleted ? 'Đã xoá' : 'Hoạt động'}</div>
+              <div class="comment-actions">
+                <button class="btn btn-warning" onclick="editCommentForm('${comment.id}', '${escapeHtml(comment.text)}', '${postId}')">Sửa</button>
+                ${!comment.isDeleted ? `<button class="btn btn-danger" onclick="deleteComment('${comment.id}', '${postId}')">Xoá</button>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        `;
+      } catch (err) {
+        console.error('Lỗi tải comments:', err);
+      }
+    }
+
+    // Thêm comment (Đã sửa: dùng ID tự tăng)
+    async function addComment(postId) {
+      const textInput = document.getElementById(`newComment-${postId}`);
+      const text = textInput.value.trim();
+      if (!text) {
+        alert('Vui lòng nhập bình luận!');
+        return;
+      }
+      
+      try {
+        const nextId = await getNextId('comments');
+
+        const res = await fetch(`${API_URL}/comments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            id: nextId,
+            text, 
+            postId, 
+            isDeleted: false 
+          })
+        });
+        
+        if (!res.ok) throw new Error('Lỗi thêm comment');
+        textInput.value = '';
+        loadComments(postId); // Tải lại danh sách comment
+      } catch (err) {
+        alert('Lỗi: ' + err.message);
+      }
+    }
+
+    // Xoá comment (Đã sửa: dùng PATCH)
+    async function deleteComment(id, postId) {
+      if (!confirm('Bạn có chắc muốn xoá comment này?')) return;
+      
+      try {
+        const res = await fetch(`${API_URL}/comments/${id}`, { 
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isDeleted: true })
+        });
+
+        if (!res.ok) throw new Error('Lỗi xoá comment');
+        loadComments(postId); // Tải lại vùng comment thay vì reload trang
+      } catch (err) {
+        alert('Lỗi: ' + err.message);
+      }
+    }
+
+    // Sửa comment (Đã sửa: dùng PATCH)
+    function editCommentForm(id, text, postId) {
+      // Decode HTML entities
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = text;
+      const cleanText = tempDiv.textContent || tempDiv.innerText || "";
+
+      const newText = prompt('Bình luận mới:', cleanText);
+      if (newText === null) return;
+      
+      updateComment(id, newText, postId);
+    }
+
+    async function updateComment(id, text, postId) {
+      try {
+        const res = await fetch(`${API_URL}/comments/${id}`, {
+          method: 'PATCH', // Dùng PATCH
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        
+        if (!res.ok) throw new Error('Lỗi cập nhật comment');
+        loadComments(postId);
+      } catch (err) {
+        alert('Lỗi: ' + err.message);
+      }
+    }
+
+    // Escape HTML (Giữ nguyên để chống XSS)
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Tải posts khi trang load
+    window.addEventListener('DOMContentLoaded', loadPosts);
+  </script>
+</body>
+</html>
